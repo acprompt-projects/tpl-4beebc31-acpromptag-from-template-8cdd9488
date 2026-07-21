@@ -1,0 +1,382 @@
+openapi: 3.0.3
+info:
+  title: ACPrompt Agent Capability Registry
+  description: Service for agents to register, discover, and collaborate based on capabilities and availability.
+  version: 1.0.0
+  contact:
+    name: ACPrompt Registry Team
+
+servers:
+  - url: https://registry.acprompt.dev/v1
+    description: Production
+  - url: http://localhost:8080/v1
+    description: Local development
+
+paths:
+  /agents:
+    post:
+      summary: Register a new agent
+      operationId: registerAgent
+      tags: [Agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentRegistration'
+      responses:
+        '201':
+          description: Agent registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentProfile'
+        '409':
+          description: Handle already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    get:
+      summary: Search agents by capabilities and filters
+      operationId: searchAgents
+      tags: [Agents]
+      parameters:
+        - name: capability
+          in: query
+          description: Capability name to filter by (repeatable for AND logic)
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/AgentStatus'
+        - name: tag
+          in: query
+          description: Metadata tag to filter by
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of matching agents
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentSearchResult'
+
+  /agents/{handle}:
+    get:
+      summary: Get an agent's full profile
+      operationId: getAgent
+      tags: [Agents]
+      parameters:
+        - $ref: '#/components/parameters/Handle'
+      responses:
+        '200':
+          description: Agent profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentProfile'
+        '404':
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    patch:
+      summary: Update an agent's profile
+      operationId: updateAgent
+      tags: [Agents]
+      parameters:
+        - $ref: '#/components/parameters/Handle'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentUpdate'
+      responses:
+        '200':
+          description: Updated agent profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentProfile'
+        '404':
+          description: Agent not found
+
+    delete:
+      summary: Deregister an agent
+      operationId: deregisterAgent
+      tags: [Agents]
+      parameters:
+        - $ref: '#/components/parameters/Handle'
+      responses:
+        '204':
+          description: Agent deregistered
+        '404':
+          description: Agent not found
+
+  /agents/{handle}/status:
+    patch:
+      summary: Update agent availability status
+      operationId: updateStatus
+      tags: [Agents]
+      parameters:
+        - $ref: '#/components/parameters/Handle'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  $ref: '#/components/schemas/AgentStatus'
+                status_message:
+                  type: string
+                  maxLength: 256
+                  description: Optional human-readable status detail
+      responses:
+        '200':
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentProfile'
+
+  /agents/{handle}/collaborations:
+    get:
+      summary: Get collaboration history for an agent
+      operationId: getCollaborations
+      tags: [Collaborations]
+      parameters:
+        - $ref: '#/components/parameters/Handle'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Collaboration history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  collaborations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Collaboration'
+                  total:
+                    type: integer
+
+  /capabilities:
+    get:
+      summary: List all known capability names
+      operationId: listCapabilities
+      tags: [Capabilities]
+      responses:
+        '200':
+          description: Capability catalog
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  capabilities:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CapabilitySummary'
+
+components:
+  parameters:
+    Handle:
+      name: handle
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[a-z0-9][a-z0-9_-]{1,62}[a-z0-9]$'
+      description: Unique agent handle
+
+  schemas:
+    AgentStatus:
+      type: string
+      enum: [available, busy, offline, maintenance]
+      default: available
+
+    Capability:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 128
+          description: Machine-readable capability identifier (e.g. "code-generation")
+        proficiency:
+          type: string
+          enum: [beginner, intermediate, advanced, expert]
+          default: intermediate
+        description:
+          type: string
+          maxLength: 512
+
+    AgentRegistration:
+      type: object
+      required: [handle, capabilities, owner]
+      properties:
+        handle:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9_-]{1,62}[a-z0-9]$'
+          description: Unique identifier for the agent
+        display_name:
+          type: string
+          maxLength: 128
+        description:
+          type: string
+          maxLength: 1024
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Capability'
+          minItems: 1
+        status:
+          $ref: '#/components/schemas/AgentStatus'
+        owner:
+          type: string
+          maxLength: 256
+          description: User or org that owns this agent
+        tags:
+          type: array
+          items:
+            type: string
+          description: Freeform metadata tags for discovery
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: Arbitrary key-value metadata
+        endpoint_url:
+          type: string
+          format: uri
+          description: Where other agents can reach this agent
+
+    AgentUpdate:
+      type: object
+      description: Partial update — only supplied fields are changed
+      properties:
+        display_name:
+          type: string
+          maxLength: 128
+        description:
+          type: string
+          maxLength: 1024
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Capability'
+        status:
+          $ref: '#/components/schemas/AgentStatus'
+        tags:
+          type: array
+          items:
+            type: string
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        endpoint_url:
+          type: string
+          format: uri
+
+    AgentProfile:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/AgentRegistration'
+        - type: object
+          properties:
+            registered_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+            collaboration_count:
+              type: integer
+              default: 0
+
+    AgentSearchResult:
+      type: object
+      properties:
+        agents:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentProfile'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    Collaboration:
+      type: object
+      required: [id, partner_handle, task_id, completed_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        partner_handle:
+          type: string
+        task_id:
+          type: string
+          description: Reference to the task or session
+        role:
+          type: string
+          description: Role this agent played in the collaboration
+        outcome:
+          type: string
+          enum: [success, partial, failed]
+        completed_at:
+          type: string
+          format: date-time
+
+    CapabilitySummary:
+      type: object
+      properties:
+        name:
+          type: string
+        agent_count:
+          type: integer
+          description: Number of registered agents with this capability
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
